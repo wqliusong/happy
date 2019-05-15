@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="ie=edge">
+	<title>Document</title>
+	<link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+	<script src="https://cdn.jsdelivr.net/npm/vue@2.5.21/dist/vue.js"></script>
+	<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+	<style>
+		.addBtn {
+			width: 100%;
+			margin-top: 10px;
+		}
+
+		.el-date-editor.el-input,
+		.el-date-editor.el-input__inner {
+			width: auto;
+		}
+
+		#app{
+			width: 1400px;
+		}
+		tr td:nth-last-child(1) .cell {
+			margin-bottom: 22px;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="template" style="display:none">
+		<div id="inputList">
+			<el-form :model="listmodel">
+				<!-- 表格 -->
+				<el-table :data="listmodel.tableData" style="width: 100%" size="mini">
+					<el-table-column align="center" v-for="(item,index) in rowtable" :key="index" :label="item.label" :width="item.width">
+						<!-- 每一行中可能出现的表单输入框 -->
+						<template slot-scope="scope">
+							<span v-show="scope.row.status && scope.row.status != 'init'">{{ scope.row[item.prop] }}</span>
+							<el-form-item v-show="!scope.row.status || scope.row.status == 'init'"
+								:prop="'tableData.'+scope.$index+'.'+item.prop" :rules="item.rule"
+								:ref="'tableData.'+scope.$index+'.'+item.prop">
+								<el-input size="mini" v-model="listmodel.tableData[scope.$index][item.prop]"
+									v-if="item.type == 'text' || !item.hasOwnProperty('type')" :disabled="item.disabled"></el-input>
+								<el-date-picker v-model="listmodel.tableData[scope.$index][item.prop]" type="date" placeholder="选择日期"
+									size="mini" value-format="yyyy-MM-dd" v-else-if="item.type == 'date'" :disabled="item.disabled">
+								</el-date-picker>
+								<el-cascader size="mini" :options="item.options" v-else-if="item.type == 'cascader'"
+									v-model="listmodel.tableData[scope.$index][item.prop]" :disabled="item.disabled">
+								</el-cascader>
+								<el-input-number size="mini" v-model="listmodel.tableData[scope.$index][item.prop]"
+									v-else-if="item.type == 'number'" :controls="false" :disabled="item.disabled"></el-input-number>
+								<el-select size="mini" v-model="listmodel.tableData[scope.$index][item.prop]"
+									v-else-if="item.type == 'select'" :disabled="item.disabled">
+									<el-option v-for="opt in item.options" :key="opt.value" :label="opt.label" :value="opt.value">
+									</el-option>
+								</el-select>
+							</el-form-item>
+						</template>
+					</el-table-column>
+					<!-- 操作列 -->
+					<el-table-column label="操作" width="200" align="center">
+						<template slot-scope="scope">
+							<el-button size="mini" @click="handleEdit(scope.$index, scope.row.status, scope.row)"
+								v-show="!scope.row.status || scope.row.status == 'init'">
+								确认</el-button>
+							<el-button size="mini" @click="handleEdit(scope.$index, scope.row.status, scope.row)"
+								v-show="scope.row.status && scope.row.status != 'init'">
+								编辑</el-button>
+							<el-button size="mini" @click="handleCancel(scope.$index, scope.row.status, scope.row)"
+								v-show="!scope.row.status" type="warning">
+								取消</el-button>
+							<el-button size="mini" type="danger" @click="handleDelete(scope.$index)"
+								v-show="scope.row.status || scope.row.status == 'init'">删除
+							</el-button>
+						</template>
+					</el-table-column>
+
+				</el-table>
+				<!-- 新增按钮 -->
+				<el-button size="mini" @click="addRowListJudge" class="addBtn">新增一行</el-button>
+			</el-form>
+		</div>
+	</div>
+
+	<div id="app">
+		<input-list :rowtable="rowtable" :listmodel="listmodel" :pushlist="pushlist" :editstatus="editstatus"
+			:cancelrest="cancelrest" :delrow="delrow"></input-list>
+	</div>
+	<script>
+		Vue.component("input-list", {
+			name: "input-list",
+			props: {
+				rowtable: Array,
+				listmodel: {
+					type: Object,
+					default: function () {
+						return {
+							tableData: []
+						}
+					}
+				},
+				pushlist: Function,
+				editstatus: Function,
+				delrow: Function,
+				cancelrest: Function,
+
+			},
+			data() {
+				return {
+					cancelList: [],
+				};
+			},
+			methods: {
+				// 是否允许新增行的判断, 符合条件新增, 否则提示
+				// 也是为了再提交表单的时候做判断, 如果用户忘记点确认, 未确认的一行是否要提交, 这样他必须确认才能提交
+				addRowListJudge() {
+					var errRow = this.listmodel.tableData.find(ele => ele.status == false || ele.status == 'init');
+					if (!errRow) {
+						this.pushlist();
+					} else {
+						this.$message({
+							type: "warning",
+							message: "请先确定已编辑行"
+						});
+					}
+				},
+				handleEdit(index, stu, row) {
+					// true 为不可编辑, 当变为可编辑的时候, 要为取消做准备, 所以存一份当前行
+					if (stu === "init") {
+						this.editstatus(index, stu, row);
+					} else if (stu === true) {
+						//因为浅拷贝问题, 这里直接push, 会导致数据同时变化
+						this.cancelList.push(JSON.parse(JSON.stringify(row)))
+						this.editstatus(index, stu, row);
+					} else if (stu === false) {
+						this.editstatus(index, stu, row);
+						this.cancelList.splice(this.cancelList.indexOf(row), 1)
+					}
+				},
+				handleCancel(index, stu, row) {
+					// 点取消的时候, 恢复原数据, 并变为不可编辑
+					// 根据key查找cancel的哪一行然后替换
+					var keyRow = this.cancelList.find(ele => ele.key === row.key)
+					this.cancelrest(index, stu, keyRow)
+					this.cancelList.splice(this.cancelList.indexOf(row), 1)
+				},
+				handleDelete(index) {
+					//删除当前行
+					this.delrow(index);
+				}
+			},
+			template: document.getElementById("template").innerHTML,
+		})
+		var vue = new Vue({
+			el: "#app",
+			data() {
+				return {
+					//多行编辑控制列表
+					rowtable: [
+						{
+							//显示的名称
+							label: "邮箱",
+							//input宽度
+							width: "200",
+							//绑定prop
+							prop: "email",
+							//验证规则
+							rule: [{ required: true, message: "年龄不能为空" }],
+							//input类型 "number", "date", "text", "search", "select"
+							type: "number",
+							//是否手动编辑的栏
+							disabled: false
+						},
+						{
+							label: "邮箱1",
+							width: "200",
+							prop: "email1",
+							rule: [
+								{ required: true, message: "请输入邮箱1地址", trigger: "blur" }
+							],
+							type: "date",
+							disabled: false
+						},
+						{
+							label: "邮箱2",
+							width: "200",
+							prop: "email2",
+							rule: [
+								{ required: true, message: "请输入邮箱2地址", trigger: "blur" }
+							],
+							disabled: false
+						},
+						{
+							label: "邮箱3",
+							width: "200",
+							prop: "email3",
+							rule: [
+								{ required: true, message: "请输入邮箱3地址", trigger: "blur" }
+							],
+							type: "text",
+							disabled: false
+						},
+						{
+							label: "邮箱4",
+							width: "200",
+							prop: "email4",
+							rule: [
+								{ required: true, message: "请输入邮箱4地址", trigger: "blur" }
+							],
+							type: "cascader",
+							disabled: false,
+							options: [{
+								value: 'zhinan',
+								label: '指南',
+								children: [{
+									value: 'shejiyuanze',
+									label: '设计原则',
+									children: [{
+										value: 'yizhi',
+										label: '一致'
+									}, {
+										value: 'fankui',
+										label: '反馈'
+									}, {
+										value: 'xiaolv',
+										label: '效率'
+									}, {
+										value: 'kekong',
+										label: '可控'
+									}]
+								}, {
+									value: 'daohang',
+									label: '导航',
+									children: [{
+										value: 'cexiangdaohang',
+										label: '侧向导航'
+									}, {
+										value: 'dingbudaohang',
+										label: '顶部导航'
+									}]
+								}]
+							}, {
+								value: 'zujian',
+								label: '组件',
+								children: [{
+									value: 'basic',
+									label: 'Basic',
+									children: [{
+										value: 'layout',
+										label: 'Layout 布局'
+									}, {
+										value: 'color',
+										label: 'Color 色彩'
+									}, {
+										value: 'typography',
+										label: 'Typography 字体'
+									}, {
+										value: 'icon',
+										label: 'Icon 图标'
+									}, {
+										value: 'button',
+										label: 'Button 按钮'
+									}]
+								}, {
+									value: 'form',
+									label: 'Form',
+									children: [{
+										value: 'radio',
+										label: 'Radio 单选框'
+									}, {
+										value: 'checkbox',
+										label: 'Checkbox 多选框'
+									}, {
+										value: 'input',
+										label: 'Input 输入框'
+									}, {
+										value: 'input-number',
+										label: 'InputNumber 计数器'
+									}, {
+										value: 'select',
+										label: 'Select 选择器'
+									}, {
+										value: 'cascader',
+										label: 'Cascader 级联选择器'
+									}, {
+										value: 'switch',
+										label: 'Switch 开关'
+									}, {
+										value: 'slider',
+										label: 'Slider 滑块'
+									}, {
+										value: 'time-picker',
+										label: 'TimePicker 时间选择器'
+									}, {
+										value: 'date-picker',
+										label: 'DatePicker 日期选择器'
+									}, {
+										value: 'datetime-picker',
+										label: 'DateTimePicker 日期时间选择器'
+									}, {
+										value: 'upload',
+										label: 'Upload 上传'
+									}, {
+										value: 'rate',
+										label: 'Rate 评分'
+									}, {
+										value: 'form',
+										label: 'Form 表单'
+									}]
+								}, {
+									value: 'data',
+									label: 'Data',
+									children: [{
+										value: 'table',
+										label: 'Table 表格'
+									}, {
+										value: 'tag',
+										label: 'Tag 标签'
+									}, {
+										value: 'progress',
+										label: 'Progress 进度条'
+									}, {
+										value: 'tree',
+										label: 'Tree 树形控件'
+									}, {
+										value: 'pagination',
+										label: 'Pagination 分页'
+									}, {
+										value: 'badge',
+										label: 'Badge 标记'
+									}]
+								}, {
+									value: 'notice',
+									label: 'Notice',
+									children: [{
+										value: 'alert',
+										label: 'Alert 警告'
+									}, {
+										value: 'loading',
+										label: 'Loading 加载'
+									}, {
+										value: 'message',
+										label: 'Message 消息提示'
+									}, {
+										value: 'message-box',
+										label: 'MessageBox 弹框'
+									}, {
+										value: 'notification',
+										label: 'Notification 通知'
+									}]
+								}, {
+									value: 'navigation',
+									label: 'Navigation',
+									children: [{
+										value: 'menu',
+										label: 'NavMenu 导航菜单'
+									}, {
+										value: 'tabs',
+										label: 'Tabs 标签页'
+									}, {
+										value: 'breadcrumb',
+										label: 'Breadcrumb 面包屑'
+									}, {
+										value: 'dropdown',
+										label: 'Dropdown 下拉菜单'
+									}, {
+										value: 'steps',
+										label: 'Steps 步骤条'
+									}]
+								}, {
+									value: 'others',
+									label: 'Others',
+									children: [{
+										value: 'dialog',
+										label: 'Dialog 对话框'
+									}, {
+										value: 'tooltip',
+										label: 'Tooltip 文字提示'
+									}, {
+										value: 'popover',
+										label: 'Popover 弹出框'
+									}, {
+										value: 'card',
+										label: 'Card 卡片'
+									}, {
+										value: 'carousel',
+										label: 'Carousel 走马灯'
+									}, {
+										value: 'collapse',
+										label: 'Collapse 折叠面板'
+									}]
+								}]
+							}, {
+								value: 'ziyuan',
+								label: '资源',
+								children: [{
+									value: 'axure',
+									label: 'Axure Components'
+								}, {
+									value: 'sketch',
+									label: 'Sketch Templates'
+								}, {
+									value: 'jiaohu',
+									label: '组件交互文档'
+								}]
+							}],
+						},
+						{
+							label: "邮箱5",
+							width: "200",
+							prop: "email5",
+							rule: [
+								{ required: true, message: "请输入邮箱5地址", trigger: "blur" }
+							],
+							type: "select",
+							//select, 需传入option
+							options: [
+								{ label: "option1", value: "o1" },
+								{ label: "option2", value: "o2" }
+							],
+							disabled: false
+						}
+					],
+					//form表单
+					listmodel: {
+						tableData: []
+					},
+				}
+			},
+			methods: {
+				//添加一行
+				pushlist() {
+					this.listmodel.tableData.push({
+						email: "",
+						email1: "",
+						email2: "",
+						email3: "",
+						email4: [],
+						email5: "",
+						status: "init",
+						key: new Date().getTime()
+					});
+				},
+				//将可编辑行 变为确认行, 确认行不可编辑, 将开关置为编辑
+				editstatus(index, stu, row) {
+					for (const key in row) {
+						if (row.hasOwnProperty(key)) {
+							const ele = row[key];
+							if (ele.length == 0) {
+								this.$message({
+									type: "warning",
+									message: "有空字段"
+								});
+								return;
+							}
+						}
+					}
+					this.listmodel.tableData[index].status = stu == "init" ? true : !stu;
+				},
+				//删除当前行
+				delrow(index) {
+					this.listmodel.tableData.splice(index, 1);
+				},
+				//取消, 恢复成原来状态, 并置为不可编辑
+				cancelrest(index, stu, row) {
+					//用splice, 防止数组更新vue不更新视图
+					this.listmodel.tableData.splice(index, 1, row)
+					this.listmodel.tableData[index].status = !stu;
+				}
+			}
+		})
+	</script>
+</body>
+
+</html>
